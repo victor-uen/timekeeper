@@ -24,9 +24,9 @@ class WatchForm(QDialog):
     def __init__(self, parent, categories: List[Category], watch: Optional[Watch] = None):
         super().__init__(parent)
         self.categories = categories
-        self.watch = watch or Watch()
         self.is_edit = watch is not None
-        self.rating = watch.personal_rating or 0
+        self.watch = watch or Watch()
+        self.rating = self.watch.personal_rating or 0
         self._star_buttons = []
 
         self.setWindowTitle("Edit watch" if self.is_edit else "Add watch")
