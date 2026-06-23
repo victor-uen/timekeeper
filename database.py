@@ -6,12 +6,13 @@
 
 import sqlite3
 import os
+import shutil
+import uuid
 from typing import List, Optional
 from models import Watch, Category
 
-# O banco de dados fica na pasta do usuário, não na pasta do app.
-# Assim os dados não somem se o usuário reinstalar o app.
 DB_PATH = os.path.join(os.path.expanduser("~"), ".timekeeper", "timekeeper.db")
+IMAGES_DIR = os.path.join(os.path.expanduser("~"), ".timekeeper", "images")
 
 
 class Database:
@@ -22,8 +23,8 @@ class Database:
     """
 
     def __init__(self):
-        # Cria a pasta ~/.timekeeper/ se não existir
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        os.makedirs(IMAGES_DIR, exist_ok=True)
         # Conecta ao banco (cria o arquivo se não existir)
         self.conn = sqlite3.connect(DB_PATH)
         # Row factory: faz as linhas retornadas se comportarem como dicionários
@@ -95,6 +96,16 @@ class Database:
                 cost_brl     REAL,
                 notes        TEXT,
                 created_at   TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS watch_images (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                watch_id   INTEGER NOT NULL REFERENCES watches(id) ON DELETE CASCADE,
+                path       TEXT NOT NULL,
+                caption    TEXT,
+                is_cover   INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now'))
             );
         """)
         self.conn.commit()
@@ -305,6 +316,75 @@ class Database:
             is_for_sale=bool(r.get("is_for_sale")),
             notes=r.get("notes"), created_at=r.get("created_at"),
         )
+
+    # ── Images ────────────────────────────────────────────────────────────────
+
+    def get_images(self, watch_id: int) -> list:
+        rows = self.conn.execute(
+            "SELECT * FROM watch_images WHERE watch_id = ? ORDER BY sort_order, id",
+            (watch_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def add_image(self, watch_id: int, source_path: str, caption: str = None) -> dict:
+        ext = os.path.splitext(source_path)[1].lower()
+        filename = f"{uuid.uuid4().hex}{ext}"
+        shutil.copy2(source_path, os.path.join(IMAGES_DIR, filename))
+
+        count = self.conn.execute(
+            "SELECT COUNT(*) FROM watch_images WHERE watch_id = ?", (watch_id,)
+        ).fetchone()[0]
+        is_cover = 1 if count == 0 else 0
+
+        cur = self.conn.execute(
+            "INSERT INTO watch_images (watch_id, path, caption, is_cover, sort_order) VALUES (?,?,?,?,?)",
+            (watch_id, filename, caption, is_cover, count)
+        )
+        self.conn.commit()
+        return {"id": cur.lastrowid, "watch_id": watch_id, "path": filename,
+                "caption": caption, "is_cover": bool(is_cover), "sort_order": count}
+
+    def set_cover(self, watch_id: int, image_id: int):
+        self.conn.execute("UPDATE watch_images SET is_cover = 0 WHERE watch_id = ?", (watch_id,))
+        self.conn.execute("UPDATE watch_images SET is_cover = 1 WHERE id = ?", (image_id,))
+        self.conn.commit()
+
+    def update_image_caption(self, image_id: int, caption: str):
+        self.conn.execute("UPDATE watch_images SET caption = ? WHERE id = ?", (caption, image_id))
+        self.conn.commit()
+
+    def delete_image(self, image_id: int):
+        row = self.conn.execute(
+            "SELECT * FROM watch_images WHERE id = ?", (image_id,)
+        ).fetchone()
+        if not row:
+            return
+        row = dict(row)
+
+        file_path = os.path.join(IMAGES_DIR, row["path"])
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+        self.conn.execute("DELETE FROM watch_images WHERE id = ?", (image_id,))
+
+        if row["is_cover"]:
+            next_img = self.conn.execute(
+                "SELECT id FROM watch_images WHERE watch_id = ? ORDER BY sort_order, id LIMIT 1",
+                (row["watch_id"],)
+            ).fetchone()
+            if next_img:
+                self.conn.execute(
+                    "UPDATE watch_images SET is_cover = 1 WHERE id = ?", (next_img["id"],)
+                )
+
+        self.conn.commit()
+
+    def reorder_images(self, image_ids: list):
+        for order, img_id in enumerate(image_ids):
+            self.conn.execute(
+                "UPDATE watch_images SET sort_order = ? WHERE id = ?", (order, img_id)
+            )
+        self.conn.commit()
 
     def close(self):
         self.conn.close()

@@ -359,10 +359,11 @@ class MainWindow(QMainWindow):
     # ── Formulário de relógio ─────────────────────────────────────────────────
 
     def _open_add_form(self):
-        form = WatchForm(self, self.categories)
+        form = WatchForm(self, self.categories, self.db)
         if form.exec() == QDialog.DialogCode.Accepted:
             watch = form.get_watch()
             self.db.save_watch(watch)
+            form.gallery.refresh(watch.id)
             self._refresh()
 
     def _on_row_double_click(self, index):
@@ -370,7 +371,7 @@ class MainWindow(QMainWindow):
         watch = self.db.get_watch(watch_id)
         if not watch:
             return
-        form = WatchForm(self, self.categories, watch)
+        form = WatchForm(self, self.categories, self.db, watch)
         if form.exec() == QDialog.DialogCode.Accepted:
             w = form.get_watch()
             if getattr(w, "_delete", False):

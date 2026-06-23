@@ -13,6 +13,7 @@ from PyQt6.QtCore import Qt, QDate
 from PyQt6.QtGui import QFont
 from models import Watch, Category, MOVEMENT_TYPES, MOVEMENT_ORIGINS, CRYSTAL_TYPES, CONDITIONS, STATUSES, CURRENCIES
 from typing import List, Optional
+from ui.gallery_widget import GalleryWidget
 
 
 class WatchForm(QDialog):
@@ -21,9 +22,10 @@ class WatchForm(QDialog):
     Recebe um objeto Watch opcional — se None, é um novo relógio.
     """
 
-    def __init__(self, parent, categories: List[Category], watch: Optional[Watch] = None):
+    def __init__(self, parent, categories: List[Category], db, watch: Optional[Watch] = None):
         super().__init__(parent)
         self.categories = categories
+        self.db = db
         self.is_edit = watch is not None
         self.watch = watch or Watch()
         self.rating = self.watch.personal_rating or 0
@@ -63,6 +65,9 @@ class WatchForm(QDialog):
         self.tabs.addTab(self._tab_case_dial(),   "Case & Dial")
         self.tabs.addTab(self._tab_acquisition(), "Acquisition")
         self.tabs.addTab(self._tab_personal(),    "Personal")
+
+        self.gallery = GalleryWidget(self.db, self.watch.id)
+        self.tabs.addTab(self.gallery, "Gallery")
 
         layout.addWidget(self.tabs, 1)
 
