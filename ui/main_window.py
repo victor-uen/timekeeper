@@ -11,11 +11,12 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QScrollArea
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QFont, QColor, QIcon, QAction
-from database import Database
+from PyQt6.QtGui import QFont, QColor, QIcon, QAction, QPixmap
+from database import Database, IMAGES_DIR
 from models import Watch, Category
 from ui.watch_form import WatchForm
 from ui.styles import COLORS
+import os
 
 
 class MainWindow(QMainWindow):
@@ -187,16 +188,26 @@ class MainWindow(QMainWindow):
 
         # Tabela de relógios
         self.table = QTableWidget()
-        self.table.setColumnCount(7)
+        self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels(
-            ["Brand", "Model", "Reference", "Year", "Caliber", "Price (BRL)", "Rating"]
+            ["", "Brand", "Model", "Reference", "Year", "Caliber"]
         )
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(False)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.table.setColumnWidth(0, 60)   # photo
+        self.table.setColumnWidth(1, 120)  # brand
+        self.table.setColumnWidth(3, 120)  # reference
+        self.table.setColumnWidth(4, 110)  # year
+        self.table.setColumnWidth(5, 110)  # caliber
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # model stretches
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
         self.table.setShowGrid(False)
         self.table.doubleClicked.connect(self._on_row_double_click)
         self.table.setStyleSheet(f"""
@@ -306,21 +317,46 @@ class MainWindow(QMainWindow):
             row = self.table.rowCount()
             self.table.insertRow(row)
 
+            # Get cover image for this watch
+            images = self.db.get_images(w.id)
+            cover = next((i for i in images if i["is_cover"]), images[0] if images else None)
+
+            thumb_label = QLabel()
+            thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            if cover:
+                full_path = os.path.join(IMAGES_DIR, cover["path"])
+                px = QPixmap(full_path)
+                if not px.isNull():
+                    scaled = px.scaled(
+                        56, 56,
+                        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                        Qt.TransformationMode.SmoothTransformation
+                    )
+                    x = max(0, (scaled.width() - 56) // 2)
+                    y = max(0, (scaled.height() - 56) // 2)
+                    cropped = scaled.copy(x, y, 56, 56)
+                    thumb_label.setPixmap(cropped)
+                    thumb_label.setFixedSize(56, 56)
+            else:
+                thumb_label.setStyleSheet(
+                    "background:#EFEBE4; border-radius:4px;"
+                )
+                thumb_label.setFixedSize(56, 56)
+
+            self.table.setCellWidget(row, 0, thumb_label)
+
             # Guarda o ID do relógio na linha para recuperar ao clicar
             id_item = QTableWidgetItem(w.brand)
             id_item.setData(Qt.ItemDataRole.UserRole, w.id)
-            self.table.setItem(row, 0, id_item)
+            self.table.setItem(row, 1, id_item)
 
-            self.table.setItem(row, 1, QTableWidgetItem(w.model))
-            self.table.setItem(row, 2, QTableWidgetItem(w.reference or ""))
-            self.table.setItem(row, 3, QTableWidgetItem(w.year_made or ""))
-            self.table.setItem(row, 4, QTableWidgetItem(w.caliber or ""))
-            price = f"R$ {w.price_brl:,.2f}" if w.price_brl else ""
-            self.table.setItem(row, 5, QTableWidgetItem(price))
-            stars = ("★" * (w.personal_rating or 0)) + ("☆" * (5 - (w.personal_rating or 0)))
-            self.table.setItem(row, 6, QTableWidgetItem(stars))
+            self.table.setItem(row, 2, QTableWidgetItem(w.model))
+            self.table.setItem(row, 3, QTableWidgetItem(w.reference or ""))
+            self.table.setItem(row, 4, QTableWidgetItem(w.year_made or ""))
+            self.table.setItem(row, 5, QTableWidgetItem(w.caliber or ""))
 
-            self.table.setRowHeight(row, 44)
+            self.table.setRowHeight(row, 56)
 
         self.statusBar().showMessage(f"{len(watches)} watch{'es' if len(watches) != 1 else ''}")
 
@@ -367,7 +403,7 @@ class MainWindow(QMainWindow):
             self._refresh()
 
     def _on_row_double_click(self, index):
-        watch_id = self.table.item(index.row(), 0).data(Qt.ItemDataRole.UserRole)
+        watch_id = self.table.item(index.row(), 1).data(Qt.ItemDataRole.UserRole)
         watch = self.db.get_watch(watch_id)
         if not watch:
             return
